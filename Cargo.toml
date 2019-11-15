@@ -1,0 +1,12 @@
+[package]
+name = "infolauncher"
+version = "0.1.0"
+authors = ["Simon Larsson <simon.larsson-general@protonmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+wayland-client = { git = "https://github.com/Smithay/wayland-rs.git", features = ["use_system_lib"] }
+wayland-protocols = { git = "https://github.com/Smithay/wayland-rs.git", features = ["unstable_protocols", "client"] }
+vulkano = "*"
