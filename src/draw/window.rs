@@ -67,14 +67,15 @@ impl Window {
                 }
                 layer_surface.ack_configure(serial);
             }
-            Event::Closed => panic!("Recieved closed event"),
-            _ => panic!("Unhandled event"),
+            Event::Closed => {eprintln!("Got close event!"); *super::STATUS.lock().unwrap() = super::Status::Closing},
+            _ => println!("Unhandled event"),
         });
-        let eventsn = event_queue.sync_roundtrip(|_, _| {}).unwrap();
-        println!("Completed {} wl events", eventsn);
+        let _eventsn = event_queue.sync_roundtrip(|_, _| {}).unwrap();
+        eprintln!("Syncing after Configure event");
         surface.commit();
-        let eventsn = event_queue.sync_roundtrip(|_, _| {}).unwrap();
-        println!("Completed {} wl events", eventsn);
+        eprintln!("Sent initial commit");
+        let _eventsn = event_queue.sync_roundtrip(|_, _| {}).unwrap();
+        eprintln!("Syncing after initial commit");
 
         Ok(Self {
             display,

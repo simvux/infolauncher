@@ -1,10 +1,13 @@
 use super::window::Window;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use vulkano::command_buffer::DynamicState;
 use vulkano::device::{Device, DeviceExtensions, Queue};
+use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract};
 use vulkano::image;
 use vulkano::instance::{Instance, InstanceCreationError, InstanceExtensions, PhysicalDevice};
-use vulkano::swapchain::{PresentMode, Surface, SurfaceTransform, Swapchain};
+use vulkano::pipeline::viewport::Viewport;
+use vulkano::swapchain::{ColorSpace, PresentMode, Surface, SurfaceTransform, Swapchain};
 
 const WIDTH: u32 = 500;
 const HEIGHT: u32 = 500;
@@ -16,6 +19,7 @@ pub struct VkSession {
     pub draw_surface: Arc<Surface<()>>,
     pub swapchain: Arc<Swapchain<()>>,
     pub images: Vec<Arc<image::SwapchainImage<()>>>,
+    pub dynamic_state: DynamicState,
 }
 
 #[derive(Debug)]
@@ -90,9 +94,16 @@ impl<'a> VkSession {
             alpha,
             PresentMode::Fifo,
             true,
-            None,
+            ColorSpace::SrgbNonLinear,
         )
         .unwrap();
+
+        let dynamic_state = DynamicState {
+            line_width: None,
+            viewports: None,
+            scissors: None,
+            ..DynamicState::default()
+        };
 
         Ok((
             Self {
@@ -102,8 +113,55 @@ impl<'a> VkSession {
                 draw_surface: vksurface,
                 swapchain,
                 images,
+                dynamic_state,
             },
             window,
         ))
+    }
+
+    pub fn new_framebuffers(
+        &mut self,
+    ) -> (
+        Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
+        Arc<RenderPassAbstract + Send + Sync>,
+    ) {
+        let viewport = Viewport {
+            origin: [0.0, 0.0],
+            dimensions: [500.0, 500.0],
+            depth_range: 0.0..1.0,
+        };
+        self.dynamic_state.viewports = Some(vec![viewport]);
+        let render_pass = Arc::new(
+            vulkano::single_pass_renderpass!(
+                self.device.clone(),
+                attachments: {
+                    color: {
+                        load: Clear,
+                        store: Store,
+                        format: self.swapchain.format(),
+                        samples: 1,
+                    }
+                },
+                pass: {
+                    color: [color],
+                    depth_stencil: {}
+                }
+            )
+            .unwrap(),
+        );
+        let buffers = self
+            .images
+            .iter()
+            .map(|image| {
+                Arc::new(
+                    Framebuffer::start(render_pass.clone())
+                        .add(image.clone())
+                        .unwrap()
+                        .build()
+                        .unwrap(),
+                ) as Arc<dyn FramebufferAbstract + Send + Sync>
+            })
+            .collect::<Vec<_>>();
+        (buffers, render_pass)
     }
 }

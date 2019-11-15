@@ -9,4 +9,6 @@ edition = "2018"
 [dependencies]
 wayland-client = { git = "https://github.com/Smithay/wayland-rs.git", features = ["use_system_lib"] }
 wayland-protocols = { git = "https://github.com/Smithay/wayland-rs.git", features = ["unstable_protocols", "client"] }
-vulkano = "*"
+vulkano = { git = "https://github.com/vulkano-rs/vulkano.git" }
+lazy_static = "*"
+# vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano.git" }
