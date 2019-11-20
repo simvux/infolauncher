@@ -24,18 +24,21 @@ lazy_static! {
 }
 
 pub struct Drawer {
-    // vk: vulkan::VkSession,
-    window: window::Window,
+    vk: vulkan::VkSession,
 }
 
 impl Drawer {
     pub fn initialize() -> Drawer {
-        let window = window::Window::spawn(500, 500, 100, 0).unwrap();
+        let window = window::Window::spawn(500, 500, 0, 0).unwrap();
 
         let physical_device_id = 0;
-        // let (vk, window) = vulkan::VkSession::initialize(physical_device_id, window).unwrap();
+        let vk = vulkan::VkSession::initialize(physical_device_id, window).unwrap();
 
-        Self { /* vk,*/ window, }
+        Self { vk }
+    }
+
+    fn window(&self) -> &window::Window {
+        self.vk.draw_surface.window()
     }
 
     pub fn listen_events(mut self) {
@@ -45,14 +48,17 @@ impl Drawer {
                 wl_keyboard::Event::Leave { .. } => println!("Lost keyboard focus"),
                 wl_keyboard::Event::Key { key, state, .. } => {
                     if key == 1 && state == wl_keyboard::KeyState::Pressed {
+                        println!("Setting closing status");
                         *STATUS.lock().unwrap() = Status::Closing;
+                    } else {
+                        print!("{} ", key);
                     }
                 }
                 _ => (),
             },
         });
         let mut keyboard_created = false;
-        self.window
+        self.window()
             .globals
             .instantiate_exact::<wl_seat::WlSeat>(1)
             .unwrap()
@@ -65,29 +71,38 @@ impl Drawer {
                     }
                 }
             });
-        self.window
-            .events
-            .sync_roundtrip(|_, _| { /* we ignore unfiltered messages */ })
-            .unwrap();
-        eprintln!("Syncing after vulkan and wl_seat configuration");
-        // self.test_draw();
+        self.test_draw();
+        /*
+        std::thread::spawn(|| {
+            std::thread::sleep_ms(6000);
+            *STATUS.lock().unwrap() = Status::Closing;
+        });
+        */
         loop {
+            self.window()
+                .events
+                .borrow_mut()
+                .dispatch(|_, _| {})
+                .unwrap();
+            eprintln!("Event dispatch!");
             if *STATUS.lock().unwrap() == Status::Closing {
-                eprintln!("Closing!!!");
-                self.window.surface.destroy();
-                self.window.events.sync_roundtrip(|_, _| {}).unwrap();
+                println!(
+                    "{}",
+                    self.window()
+                        .events
+                        .borrow_mut()
+                        .sync_roundtrip(|_, _| {})
+                        .unwrap()
+                );
                 return;
             }
-            eprintln!("Before event dispatch!");
-            self.window.events.dispatch(|_, _| {}).unwrap();
-            eprintln!("Event dispatch!");
         }
     }
 
-    /*
     fn test_draw(&mut self) {
         let (image_num, acquire_future) =
             swapchain::acquire_next_image(self.vk.swapchain.clone(), None).unwrap();
+        eprintln!("Got swapchain image");
         let clear = vec![[1.0, 1.0, 0.0, 1.0].into()];
 
         let vertex_buffer = {
@@ -121,8 +136,10 @@ impl Drawer {
             Path::new("src/draw/shader/test_frag.spv"),
             self.vk.device.clone(),
         );
+        eprintln!("Loaded shaders");
 
         let (framebuffers, render_pass) = self.vk.new_framebuffers();
+        eprintln!("Generated framebuffer and renderpass");
         let pipeline = Arc::new(
             GraphicsPipeline::start()
                 .vertex_input_single_buffer()
@@ -134,6 +151,7 @@ impl Drawer {
                 .build(self.vk.device.clone())
                 .unwrap(),
         );
+        eprintln!("Generated pipeline");
 
         let cb = AutoCommandBufferBuilder::primary_one_time_submit(
             self.vk.device.clone(),
@@ -154,19 +172,14 @@ impl Drawer {
         .unwrap()
         .build()
         .unwrap();
+        eprintln!("Built command_buffer");
 
         let _frame_end = acquire_future
             .then_execute(self.vk.queue.clone(), cb)
             .unwrap()
             .then_swapchain_present(self.vk.queue.clone(), self.vk.swapchain.clone(), image_num);
-
-        /*
-        self.window.surface.commit();
-        let eventsn = self.window.events.sync_roundtrip(|_, _| {}).unwrap();
-        println!("Completed {} wl events", eventsn);
-        */
+        eprintln!("Presented swapchain");
     }
-    */
 }
 
 event_enum!(

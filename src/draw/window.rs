@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use wayland_client::protocol::wl_display::WlDisplay;
 use wayland_client::protocol::{wl_compositor, wl_surface};
 use wayland_client::Main;
@@ -11,13 +12,15 @@ use wayland_protocols::wlr::unstable::layer_shell::v1::client::zwlr_layer_surfac
 
 pub struct Window {
     pub display: Display,
-    pub events: EventQueue,
+    pub events: RefCell<EventQueue>,
     pub attached_display: Attached<WlDisplay>,
     pub globals: GlobalManager,
     pub surface: Main<wl_surface::WlSurface>,
     pub layer: Main<ZwlrLayerShellV1>,
     pub layer_surface: Main<ZwlrLayerSurfaceV1>,
 }
+unsafe impl Send for Window {}
+unsafe impl Sync for Window {}
 
 #[derive(Debug)]
 pub enum WindowError {
@@ -52,7 +55,7 @@ impl Window {
 
         let layer = globals.instantiate_exact::<ZwlrLayerShellV1>(1).unwrap();
         let layer_surface =
-            layer.get_layer_surface(&surface, None, Layer::Overlay, String::from("infolauncher"));
+            layer.get_layer_surface(&surface, None, Layer::Top, String::from("infolauncher"));
         layer_surface.set_size(width, height);
         layer_surface.set_anchor(Anchor::Top);
         layer_surface.set_margin(offset_top, 0, 0, offset_left);
@@ -73,13 +76,11 @@ impl Window {
         let _eventsn = event_queue.sync_roundtrip(|_, _| {}).unwrap();
         eprintln!("Syncing after Configure event");
         surface.commit();
-        eprintln!("Sent initial commit");
         let _eventsn = event_queue.sync_roundtrip(|_, _| {}).unwrap();
-        eprintln!("Syncing after initial commit");
 
         Ok(Self {
             display,
-            events: event_queue,
+            events: RefCell::new(event_queue),
             attached_display,
             globals,
             surface,

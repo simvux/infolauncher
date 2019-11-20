@@ -1,5 +1,7 @@
 use super::window::Window;
+use std::borrow::Borrow;
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::sync::Arc;
 use vulkano::command_buffer::DynamicState;
 use vulkano::device::{Device, DeviceExtensions, Queue};
@@ -7,7 +9,9 @@ use vulkano::framebuffer::{Framebuffer, FramebufferAbstract, RenderPassAbstract}
 use vulkano::image;
 use vulkano::instance::{Instance, InstanceCreationError, InstanceExtensions, PhysicalDevice};
 use vulkano::pipeline::viewport::Viewport;
-use vulkano::swapchain::{ColorSpace, PresentMode, Surface, SurfaceTransform, Swapchain};
+use vulkano::swapchain::{
+    ColorSpace, PresentMode, Surface, SurfaceCreationError, SurfaceTransform, Swapchain,
+};
 
 const WIDTH: u32 = 500;
 const HEIGHT: u32 = 500;
@@ -16,9 +20,9 @@ pub struct VkSession {
     pub device: Arc<Device>,
     pub instance: Arc<Instance>,
     pub queue: Arc<Queue>,
-    pub draw_surface: Arc<Surface<()>>,
-    pub swapchain: Arc<Swapchain<()>>,
-    pub images: Vec<Arc<image::SwapchainImage<()>>>,
+    pub draw_surface: Arc<Surface<Window>>,
+    pub swapchain: Arc<Swapchain<Window>>,
+    pub images: Vec<Arc<image::SwapchainImage<Window>>>,
     pub dynamic_state: DynamicState,
 }
 
@@ -33,11 +37,33 @@ impl From<InstanceCreationError> for VkSessionError {
     }
 }
 
+pub unsafe trait SafeBorrow<T>: Borrow<T> {}
+
+unsafe impl<T> SafeBorrow<T> for T {}
+unsafe impl<'a, T> SafeBorrow<T> for &'a T {}
+unsafe impl<'a, T> SafeBorrow<T> for &'a mut T {}
+unsafe impl<T> SafeBorrow<T> for Rc<T> {}
+unsafe impl<T> SafeBorrow<T> for Arc<T> {}
+unsafe impl<T> SafeBorrow<T> for Box<T> {}
+pub fn create_vk_surface<W>(
+    window: W,
+    instance: Arc<Instance>,
+) -> Result<Arc<Surface<W>>, SurfaceCreationError>
+where
+    W: SafeBorrow<super::window::Window>,
+{
+    unsafe {
+        Surface::from_wayland(
+            instance,
+            window.borrow().display.c_ptr() as *mut _,
+            window.borrow().surface.as_ref().c_ptr() as *mut _,
+            window,
+        )
+    }
+}
+
 impl<'a> VkSession {
-    pub fn initialize(
-        physical_device_id: usize,
-        window: Window,
-    ) -> Result<(Self, Window), VkSessionError> {
+    pub fn initialize(physical_device_id: usize, window: Window) -> Result<Self, VkSessionError> {
         let extensions = InstanceExtensions {
             khr_wayland_surface: true,
             khr_surface: true,
@@ -67,15 +93,7 @@ impl<'a> VkSession {
         };
         let queue = queues.next().unwrap();
 
-        let vksurface = unsafe {
-            Surface::from_wayland(
-                instance.clone(),
-                window.display.c_ptr(),
-                window.layer_surface.as_ref().c_ptr(),
-                (),
-            )
-            .unwrap()
-        };
+        let vksurface = create_vk_surface(window, instance.clone()).unwrap();
 
         let caps = vksurface.capabilities(physical).unwrap();
         let dimensions = caps.current_extent.unwrap_or([WIDTH, HEIGHT]);
@@ -105,25 +123,22 @@ impl<'a> VkSession {
             ..DynamicState::default()
         };
 
-        Ok((
-            Self {
-                device,
-                instance,
-                queue,
-                draw_surface: vksurface,
-                swapchain,
-                images,
-                dynamic_state,
-            },
-            window,
-        ))
+        Ok(Self {
+            device,
+            instance,
+            queue,
+            draw_surface: vksurface,
+            swapchain,
+            images,
+            dynamic_state,
+        })
     }
 
     pub fn new_framebuffers(
         &mut self,
     ) -> (
         Vec<Arc<dyn FramebufferAbstract + Send + Sync>>,
-        Arc<RenderPassAbstract + Send + Sync>,
+        Arc<dyn RenderPassAbstract + Send + Sync>,
     ) {
         let viewport = Viewport {
             origin: [0.0, 0.0],
